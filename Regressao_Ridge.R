@@ -5,14 +5,20 @@
 
 #Instalar pacotes
 #install.packages("plyr")
+#install.packages("readr")
+#install.packages("dplyr")
 #install.packages("caret")
 #install.packages("ggplot2")
+#install.packages("repr")
 #install.packages("glmnet")
 
 # Carregar pacotes
 library(plyr)
+library(readr)
+library(dplyr)
 library(caret)
 library(ggplot2)
+library(repr)
 library(glmnet)
 
 # Carregar base de dados
@@ -31,12 +37,13 @@ train = trabalhosalarios[index,]
 test = trabalhosalarios[-index,] 
 
 # Padronizar as variaveis nao binarias das bases de treinamento e teste
-cols = c('husage', 'husearns', 'huseduc', 'hushrs', 'earns',
+cols = c('husage', 'husearns', 'huseduc', 'hushrs',
          'age', 'educ', 'exper', 'lwage')
 pre_proc_val <- preProcess(train[,cols], method = c("center", "scale"))
 train[,cols] = predict(pre_proc_val, train[,cols])
 test[,cols] = predict(pre_proc_val, test[,cols])
 
+#######
 # Selecionar variaveis para usar no modelo
 # **Tirado 'earns' pq nao tem na predicao pedida no trabalho
 cols_reg = c('husage', 'husunion', 'husearns', 'huseduc', 'husblck', 
@@ -54,25 +61,31 @@ dummies <- dummyVars(lwage~husage+husunion+husearns+huseduc+husblck+
 train_dummies = predict(dummies, newdata = train[,cols_reg])
 test_dummies = predict(dummies, newdata = test[,cols_reg])
 
+# Guardar a matriz de dados de treinamentos das variaveis explicativas
 x_train = as.matrix(train_dummies)
+# Guardar o vetor de dados de treinamentos da variavel dependente
 y_train = train$lwage
-
+# Guardar a matriz de dados de teste das variaveis explicativas
 x_test = as.matrix(test_dummies)
+# Guardar o vetor de dados de teste da variavel dependente
 y_test = test$lwage
 
 # Calcular o valor otimo de lambda
 lambdas <- 10^seq(2, -3, by = -.1)
 ridge_lamb <- cv.glmnet(x_train, y_train, alpha = 0, lambda = lambdas)
 best_lambda_ridge <- ridge_lamb$lambda.min
+best_lambda_ridge
+# Lambda encontrado: 0.05011872
 
 ### Estimar o modelo Ridge
-start <- Sys.time()
 ridge_reg = glmnet(x_train, y_train, nlambda = 25, alpha = 0, 
                    family = 'gaussian', 
                    lambda = best_lambda_ridge)
-end <- Sys.time()
-difftime(end, start, units="secs")
 
+# Visualizar resultado da estimativa dos coeficientes
+ridge_reg[["beta"]]
+
+######
 # Criar funcao de calculo das metricas
 eval_results <- function(true, predicted, df) {
   SSE <- sum((predicted - true)^2)
@@ -107,18 +120,19 @@ eval_results(y_test, predictions_test, test)
 # RMSE       Rsquare
 # 0.8032132  0.2661383
 
+########
 ### Criar os dados para a predicao
-#(anos – idade do marido)
+#(anos - idade do marido)
 husage = (40 - pre_proc_val[["mean"]][["husage"]]) / pre_proc_val[["std"]][["husage"]]
-#(marido não possui união estável)
+#(marido nao possui uniao estavel)
 husunion = 0
 #(US$ renda do marido por semana)
 husearns = (600 - pre_proc_val[["mean"]][["husearns"]]) / pre_proc_val[["std"]][["husearns"]]
 #(anos de estudo do marido)
 huseduc = (13 - pre_proc_val[["mean"]][["huseduc"]]) / pre_proc_val[["std"]][["huseduc"]]
-#(o marido é preto)
+#(o marido e preto)
 husblck = 1
-#(o marido não é hispânico)
+#(o marido nao e hispanico)
 hushisp = 0
 #(horas semanais de trabalho do marido)
 hushrs = (40 - pre_proc_val[["mean"]][["hushrs"]]) / pre_proc_val[["std"]][["hushrs"]]
@@ -126,17 +140,17 @@ hushrs = (40 - pre_proc_val[["mean"]][["hushrs"]]) / pre_proc_val[["std"]][["hus
 kidge6 = 1
 # 
 #earns = (? - pre_proc_val[["mean"]][["earns"]]) / pre_proc_val[["std"]][["earns"]]
-#(anos – idade da esposa)
+#(anos - idade da esposa)
 age = (38 - pre_proc_val[["mean"]][["age"]]) / pre_proc_val[["std"]][["age"]]
-#(a esposa não é preta)
+#(a esposa nao e preta)
 black = 0
 #(anos de estudo da esposa)
 educ = (13 - pre_proc_val[["mean"]][["educ"]]) / pre_proc_val[["std"]][["educ"]]
-#(a esposa é hispânica)
+#(a esposa e hispanica)
 hispanic = 1
-#(esposa não possui união estável)
+#(esposa nao possui uniao estavel)
 union = 0
-#(anos de experiência de trabalho da esposa)
+#(anos de experiencia de trabalho da esposa)
 exper = (18 - pre_proc_val[["mean"]][["exper"]]) / pre_proc_val[["std"]][["exper"]]
 #(possui filhos menores de 6 anos)
 kidlt6 =  1
@@ -163,7 +177,7 @@ predict_our_ridge <- predict(ridge_reg,
                              s = best_lambda_ridge, 
                              newx = our_pred)
 predict_our_ridge
-#-0.1870271
+#-0.2271268
 
 # Converter o resultado para valor nominal
 wage_pred_ridge=(predict_our_ridge*
@@ -171,12 +185,13 @@ wage_pred_ridge=(predict_our_ridge*
   pre_proc_val[["mean"]][["lwage"]]
 
 wage_pred_ridge
-#2.094653
+#2.074898
 
 # Aplicando antilog
 exp(wage_pred_ridge)
-#8.122623
+#7.963732
 
+######
 ### Calcular o intervalo de confianca
 n <- nrow(train) # tamanho da amostra
 m <- wage_pred_ridge # valor medio predito
@@ -188,5 +203,5 @@ CIupr_ridge <- m - (qnorm(0.025))*dam # intervalo superior
 exp(CIlwr_ridge)
 exp(CIupr_ridge)
 
-# Segundo as caracteristicas que atribuimos o salario-hora da esposa eh em media US$8.122623 e pode
-# variar entre US$7.939315 e US$8.310162
+# Segundo as caracteristicas que atribuimos o salario-hora da esposa eh em media U$7.963732 e pode
+# variar entre U$7.785569 e U$8.145973
